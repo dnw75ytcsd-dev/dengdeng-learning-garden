@@ -218,7 +218,14 @@ input[type=checkbox]{width:22px;height:22px;min-height:22px;vertical-align:middl
   .brand h1{font-size:18px}
   .tile .val{font-size:23px}
 }
-@media print{nav.mainnav,.btn{display:none}}
+@media print{nav.mainnav,.btn,.bottomnav{display:none}}
+/* ---------- 底部固定导航（移动端） ---------- */
+.bottomnav{position:fixed;bottom:0;left:0;right:0;display:none;justify-content:space-around;align-items:center;background:rgba(255,255,255,.95);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:100;box-shadow:0 -4px 16px rgba(120,100,160,.08)}
+.bottomnav button{background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 8px;font-size:10px;color:var(--muted);cursor:pointer;flex:1;min-width:0}
+.bottomnav button .bn-emoji{font-size:22px;line-height:1;transition:transform .2s}
+.bottomnav button.active{color:var(--pink-d)}
+.bottomnav button.active .bn-emoji{transform:translateY(-2px) scale(1.1)}
+@media (max-width:768px){.bottomnav{display:flex}.app{padding-bottom:calc(90px + env(safe-area-inset-bottom))}}
 /* ---------- 童趣弹窗 / 撒花 / 图表 ---------- */
 .celebrate{position:relative;text-align:center;padding:8px 4px 4px;overflow:hidden;min-height:120px}
 .celebrate .big-emoji{font-size:72px;line-height:1;filter:drop-shadow(0 6px 8px rgba(0,0,0,.12))}
@@ -231,6 +238,7 @@ input[type=checkbox]{width:22px;height:22px;min-height:22px;vertical-align:middl
 .celebrate .chint{font-size:12.5px;color:var(--muted);margin-top:10px}
 .confetti{position:absolute;top:-12px;font-size:20px;opacity:.9;animation:fall 2.4s linear infinite;pointer-events:none}
 @keyframes fall{0%{transform:translateY(-12px) rotate(0);opacity:0}12%{opacity:1}100%{transform:translateY(240px) rotate(220deg);opacity:0}}
+@keyframes floatUp{0%{transform:translateX(50%) translateY(0);opacity:0}20%{opacity:1}100%{transform:translateX(50%) translateY(-50px);opacity:0}}
 .wk-bars{display:flex;gap:6px;align-items:flex-end;justify-content:center;height:170px;padding:10px 4px 2px}
 .wk-bar{flex:1;display:flex;flex-direction:column;align-items:center;min-width:0}
 .wk-col{width:62%;max-width:36px;height:120px;background:#f0edf6;border-radius:8px;display:flex;align-items:flex-end;overflow:hidden}
@@ -261,6 +269,7 @@ input[type=checkbox]{width:22px;height:22px;min-height:22px;vertical-align:middl
   <main id="view"></main>
   <div class="foot">数据全部保存在本机浏览器中 · 请定期到「存档管理」导出 JSON 备份 · v1.0</div>
 </div>
+<nav class="bottomnav" id="bottomNav"></nav>
 <div id="modalRoot"></div>
 <div id="toasts"></div>
 <script>
@@ -479,6 +488,35 @@ function addPoints(delta, reason, kind){
   state.points = Math.max(0, state.points + delta);
   state.ledger.unshift({ id:uid('lg'), ts:nowStr(), date:today(), delta:delta, reason:reason, kind:kind||'其他', balance:state.points });
   if(state.ledger.length>1200) state.ledger.length=1200;
+  animatePoints(delta);
+}
+/* 积分数字滚动动画 + 浮动提示 */
+function animatePoints(delta){
+  var el=document.getElementById('hdrPoints');
+  if(!el) return;
+  var from=parseInt(el.textContent)||0;
+  var to=state.points;
+  if(from===to) return;
+  var start=Date.now(), dur=600;
+  function tick(){
+    var t=Math.min(1,(Date.now()-start)/dur);
+    var v=Math.round(from+(to-from)*(1-Math.pow(1-t,3)));
+    el.textContent=v;
+    if(t<1) requestAnimationFrame(tick);
+    else el.textContent=to;
+  }
+  tick();
+  el.style.transform='scale(1.3)';
+  el.style.transition='transform 0.3s';
+  setTimeout(function(){ el.style.transform='scale(1)'; },300);
+  /* 浮动 +N / -N 提示 */
+  if(delta!==0){
+    var f=document.createElement('div');
+    f.textContent=(delta>0?'+':'')+delta;
+    f.style.cssText='position:fixed;top:18px;right:50%;transform:translateX(50%);font-size:22px;font-weight:900;color:'+(delta>0?'#5cb875':'#ff6b6b')+';z-index:9999;pointer-events:none;animation:floatUp 1.2s ease-out forwards;text-shadow:0 2px 8px rgba(0,0,0,.15)';
+    document.body.appendChild(f);
+    setTimeout(function(){ if(f.parentNode) f.parentNode.removeChild(f); },1200);
+  }
 }
 function totalEarned(){
   var s=0; state.ledger.forEach(function(l){ if(l.delta>0) s+=l.delta; }); return s;
@@ -577,9 +615,9 @@ function bestStreak(){
   }
   return best;
 }
-/* 统计：任务名 -> 通过次数 */
+/* 统计：任务key -> 通过次数（用key避免改名后失效） */
 function statCounts(){
-  var byName={}, course=0, total=0;
+  var byKey={}, byName={}, course=0, total=0;
   for(var ds in state.records){
     var day=state.records[ds];
     for(var k in day){
@@ -587,10 +625,22 @@ function statCounts(){
       if(r.status!=='approved') continue;
       total++;
       if(k.indexOf('c:')===0) course++;
-      byName[r.name]=(byName[r.name]||0)+1;
+      byKey[k]=(byKey[k]||0)+1;
+      if(r.name) byName[r.name]=(byName[r.name]||0)+1;
     }
   }
-  return { byName:byName, course:course, total:total };
+  return { byKey:byKey, byName:byName, course:course, total:total };
+}
+/* 通过任务名查找任务key（在所有日常+课程任务中搜索） */
+function findTaskKeyByName(nm){
+  if(!nm) return null;
+  for(var i=0;i<state.tasks.daily.length;i++){
+    if(state.tasks.daily[i].name===nm) return 'd:'+state.tasks.daily[i].id;
+  }
+  for(var i=0;i<state.tasks.courses.length;i++){
+    if(state.tasks.courses[i].name===nm) return 'c:'+state.tasks.courses[i].id;
+  }
+  return null;
 }
 function onTimeRate(days){
   days=days||30;
@@ -644,7 +694,14 @@ function honorProgress(def){
   if(def.type==='course') return sc.course;
   if(def.type==='points') return totalEarned();
   if(def.type==='checkin') return sc.total;
-  if(def.type==='task') return sc.byName[def.taskName]||0;
+  if(def.type==='task'){
+    // 优先用 taskKey 匹配，回退用 taskName 匹配（兼容旧存档）
+    if(def.taskKey) return sc.byKey[def.taskKey]||0;
+    // 通过 taskName 查找对应 key
+    var tk=findTaskKeyByName(def.taskName);
+    if(tk) return sc.byKey[tk]||0;
+    return sc.byName[def.taskName]||0;
+  }
   return 0;
 }
 function checkHonors(){
@@ -700,16 +757,26 @@ function runCashCycle(){
   }
 }
 
-/* ---------------- 萌宠周补给 ---------------- */
+/* ---------------- 萌宠周补给 + 心情衰减 ---------------- */
 function runPetWeekly(){
   var wk=weekKey(today()), got=0;
   state.pets.forEach(function(p){
+    /* 满级周补给 */
     if(p.level >= S().petMaxLevel){
       var k=p.id+'@'+wk;
       if(!state.petMeta.weeklyClaims[k]){
         state.petMeta.weeklyClaims[k]=true;
         addPoints(S().petMaxLevelWeeklyReward, '满级萌宠「'+p.name+'」每周补给', '萌宠');
         got+=S().petMaxLevelWeeklyReward;
+      }
+    }
+    /* 心情衰减：每天没喂心情-5，最低降到10 */
+    if(p.lastFed && p.lastFed!==today()){
+      var daysSinceFed=Math.floor((parseD(today())-parseD(p.lastFed))/86400000);
+      if(daysSinceFed>0){
+        var decay=Math.min(daysSinceFed*5, p.mood-10);
+        if(decay>0){ p.mood-=decay; }
+        if(p.mood<10) p.mood=10;
       }
     }
   });
@@ -781,6 +848,16 @@ function renderNav(){
     h+='<button data-act="go" data-v="'+it.id+'" class="'+(view===it.id?'active ':'')+(it.parentOnly?'parent-only':'')+'">'+it.emoji+' '+it.name+'</button>';
   });
   n.innerHTML=h;
+  /* 底部导航：只显示常用5项 */
+  var bn=document.getElementById('bottomNav'), bh='';
+  var bnItems=NAV.filter(function(it){
+    if(it.parentOnly && !isParent()) return false;
+    return ['home','tasks','points','pets','shop'].indexOf(it.id)>=0;
+  });
+  bnItems.forEach(function(it){
+    bh+='<button data-act="go" data-v="'+it.id+'" class="'+(view===it.id?'active':'')+'"><span class="bn-emoji">'+it.emoji+'</span><span>'+it.name+'</span></button>';
+  });
+  bn.innerHTML=bh;
 }
 function renderHeader(){
   document.getElementById('hdrPoints').textContent = state.points;
@@ -1181,9 +1258,9 @@ function viewPets(){
       var maxed=p.level>=S().petMaxLevel;
       h+='<div class="pet"><div class="ava">'+p.emoji+'<span class="cos">'+cos+'</span></div>'+
         '<div class="nm">'+esc(p.name)+'</div>'+
-        '<div class="lv">Lv.'+p.level+' / '+S().petMaxLevel+(maxed?' 👑满级':'')+' · 心情 '+p.mood+'%</div>'+
+        '<div class="lv">Lv.'+p.level+' / '+S().petMaxLevel+(maxed?' 👑满级':'')+' · 心情 '+p.mood+'%'+(p.mood<30?' 😢':p.mood<60?' 😟':' 😊')+'</div>'+
         '<div class="bar" style="margin:8px 12px"><i style="width:'+p.mood+'%"></i></div>'+
-        '<div class="hint">'+(fed?'今日已喂养 😋':'肚子饿了，快来喂养～')+'</div>'+
+        '<div class="hint">'+(fed?'今日已喂养 😋':(p.mood<30?'心情很低落，快来看看它～':'肚子饿了，快来喂养～'))+'</div>'+
         '<div class="btnrow" style="margin-top:10px;justify-content:center">'+
         '<button class="btn g sm" data-act="feedPet" data-id="'+p.id+'" '+((fed||state.points<S().petFeedCost)?'disabled':'')+'>🍖 喂养 -'+S().petFeedCost+'</button>'+
         '<button class="btn b sm" data-act="lvPet" data-id="'+p.id+'" '+((maxed||state.points<S().petLevelUpCost*p.level)?'disabled':'')+'>⬆️ 升级 -'+(S().petLevelUpCost*p.level)+'</button>'+
@@ -1286,9 +1363,9 @@ function viewHonors(){
   var sc=statCounts();
   var h='<div class="grid g4">'+
     tile('t-pink','当前连续全勤', currentStreak()+' 天', '历史最佳 '+bestStreak()+' 天','🔥')+
-    tile('t-blue','分级阅读数量', (sc.byName['分级阅读']||0)+' 次', '累计完成','📚')+
+    tile('t-blue','分级阅读数量', (sc.byKey[findTaskKeyByName('分级阅读')]||0)+' 次', '累计完成','📚')+
     tile('t-green','课程出勤次数', sc.course+' 次', '固定课程累计','🏫')+
-    tile('t-yellow','跳绳打卡记录', (sc.byName['跳绳锻炼']||0)+' 次', '累计完成','🤸')+
+    tile('t-yellow','跳绳打卡记录', (sc.byKey[findTaskKeyByName('跳绳锻炼')]||0)+' 次', '累计完成','🤸')+
     '</div>';
   h+='<div class="card" style="margin-top:14px"><h2>📊 全部任务统计</h2><div class="grid g3">';
   var names=Object.keys(sc.byName).sort(function(a,b){ return sc.byName[b]-sc.byName[a]; });
@@ -1507,11 +1584,29 @@ ACT.maskClose=function(){ closeModal(); };
 ACT.confirmYes=function(){ var cb=_modalCb; _modalCb=null; closeModal(); if(cb) cb(); };
 ACT.toggleRole=function(){
   if(isParent()){ state.role='child'; save(); render(); toast('已切换到孩子端','ok'); return; }
+  // 首次使用：引导设置口令
+  if(!S().parentPin || S().parentPin==='1234'){
+    openModal('🔐 首次设置家长口令',
+      '<div class="hint">为了保护家长权限，请先设置一个家长口令（建议4-6位数字）。</div>'+
+      '<label class="f"><span>设置口令</span><input id="pinNew1" type="password" inputmode="numeric" placeholder="请输入口令"></label>'+
+      '<label class="f"><span>确认口令</span><input id="pinNew2" type="password" inputmode="numeric" placeholder="再次输入口令"></label>',
+      '<button class="btn ghost" data-act="closeModal">取消</button><button class="btn p" data-act="pinSetup">确认设置</button>',
+      function(){ var e=document.getElementById('pinNew1'); if(e) e.focus(); });
+    return;
+  }
   openModal('🔐 家长端验证',
-    '<div class="hint">请输入家长口令进入家长端（默认 1234，可在家长中心修改）。</div>'+
+    '<div class="hint">请输入家长口令进入家长端。</div>'+
     '<label class="f"><span>口令</span><input id="pinIn" type="password" inputmode="numeric" placeholder="请输入口令"></label>',
     '<button class="btn ghost" data-act="closeModal">取消</button><button class="btn p" data-act="pinOk">进入家长端</button>',
     function(){ var e=document.getElementById('pinIn'); if(e) e.focus(); });
+};
+ACT.pinSetup=function(){
+  var p1=gv('pinNew1'), p2=gv('pinNew2');
+  if(!p1){ toast('请输入口令','err'); return; }
+  if(p1.length<4){ toast('口令至少4位','err'); return; }
+  if(p1!==p2){ toast('两次口令不一致','err'); return; }
+  S().parentPin=p1; save(); closeModal();
+  state.role='parent'; save(); render(); toast('口令设置成功，已进入家长端','ok');
 };
 ACT.pinOk=function(){
   if(gv('pinIn')===String(S().parentPin)){ state.role='parent'; closeModal(); save(); render(); toast('已进入家长端','ok'); }
@@ -1622,7 +1717,8 @@ ACT.approve=function(d){
   var pts = r.complete===false? 0 : grantFor(t);
   r.status = r.complete===false? 'partial':'approved';
   r.approveAt = nowStr(); r.points = pts;
-  if(pts>0) addPoints(pts, '完成任务「'+t.name+'」（'+d.d+'）', t.typeName);
+  // 防止重复发放积分：只有未发放过时才加分
+  if(pts>0 && !r.pointsAwarded){ addPoints(pts, '完成任务「'+t.name+'」（'+d.d+'）', t.typeName); r.pointsAwarded=true; }
   logIt({ date:d.d, key:d.k, name:t.name, action:(pts>0?'审核通过':'部分完成不计分'), status:r.status, by:'家长', points:pts });
   save();
   if(pts>0){
@@ -1676,10 +1772,14 @@ ACT.doParentMark=function(d){
   checkAwards(); checkHonors(); save(); render();
 };
 ACT.clearRec=function(d){
-  confirmBox('重置状态','确定要清除该任务在 '+d.d+' 的打卡记录吗？（已发放的'+PN()+'不会自动收回）','清除',function(){
+  var r=rec(d.d,d.k); var t=taskByKey(d.d,d.k);
+  var hadPoints = r && r.pointsAwarded && r.points>0;
+  var pts = hadPoints? (r.points||0) : 0;
+  confirmBox('重置状态','确定要清除该任务在 '+d.d+' 的打卡记录吗？'+(hadPoints?'（已发放 '+pts+' '+PN()+' 将被收回）':''),  '清除',function(){
+    if(hadPoints){ addPoints(-pts, '重置「'+(t?t.name:'任务')+'」（'+d.d+'）收回积分', '家长调整'); }
     if(state.records[d.d]) delete state.records[d.d][d.k];
-    logIt({ date:d.d, key:d.k, name:'—', action:'重置状态', by:'家长' });
-    save(); render(); toast('已重置','ok');
+    logIt({ date:d.d, key:d.k, name:(t?t.name:'—'), action:'重置状态'+(hadPoints?'（收回'+pts+' '+PN()+'）':''), by:'家长', points: hadPoints?-pts:0 });
+    save(); render(); toast(hadPoints?('已重置，收回 '+pts+' '+PN()):'已重置','ok');
   });
 };
 /* --------- 请假 --------- */
@@ -1886,8 +1986,24 @@ ACT.doBattle=function(){
   addPoints(-S().battleCost, '趣味对战入场', '对战');
   state.battle.daily[today()]=used+1;
   var outs=S().battleOutcomes, tw=0; outs.forEach(function(o){ tw+=num(o.weight); });
-  var r=Math.random()*tw, acc=0, hit=outs[outs.length-1];
-  for(var i=0;i<outs.length;i++){ acc+=num(outs[i].weight); if(r<=acc){ hit=outs[i]; break; } }
+  /* 保底机制：连续2次0奖励后，本次必出好结果（排除0奖励档位） */
+  var pity=state.battle.pity||0;
+  var goodOuts=outs.filter(function(o){ return num(o.reward,0)>0; });
+  var hit;
+  if(pity>=2 && goodOuts.length>0){
+    /* 保底：从好结果中按权重随机 */
+    var gtw=0; goodOuts.forEach(function(o){ gtw+=num(o.weight); });
+    var gr=Math.random()*gtw, gacc=0;
+    hit=goodOuts[goodOuts.length-1];
+    for(var i=0;i<goodOuts.length;i++){ gacc+=num(goodOuts[i].weight); if(gr<=gacc){ hit=goodOuts[i]; break; } }
+    state.battle.pity=0;
+  } else {
+    var r=Math.random()*tw, acc=0;
+    hit=outs[outs.length-1];
+    for(var i=0;i<outs.length;i++){ acc+=num(outs[i].weight); if(r<=acc){ hit=outs[i]; break; } }
+    /* 更新保底计数 */
+    if(num(hit.reward,0)===0){ state.battle.pity=pity+1; } else { state.battle.pity=0; }
+  }
   var rw=num(hit.reward,0);
   if(rw>0) addPoints(rw, '对战结算 · '+hit.key, '对战');
   state.battle.history.unshift({ id:uid('b'), ts:nowStr(), key:hit.key, emoji:hit.emoji, reward:rw, cost:S().battleCost });
@@ -2431,6 +2547,7 @@ document.addEventListener('click', function(e){
 });
 document.addEventListener('keydown', function(e){
   if(e.key==='Enter' && document.getElementById('pinIn')===document.activeElement) ACT.pinOk();
+  if(e.key==='Enter' && (document.getElementById('pinNew1')===document.activeElement || document.getElementById('pinNew2')===document.activeElement)) ACT.pinSetup();
   if(e.key==='Enter' && document.getElementById('logQ')===document.activeElement) ACT.logFilter({});
   if(e.key==='Escape') closeModal();
 });
@@ -2447,7 +2564,7 @@ if(!state.meta.greeted){
     '<div style="font-size:14.5px;line-height:1.8">'+
     '<p>已为你内置好全部课程表、任务模板、商店与规则，<b>现在就能直接使用</b>。</p>'+
     '<p>👦 <b>孩子端</b>：看任务、提交打卡、对战、养萌宠、逛商店。<br>'+
-    '🧑‍🏫 <b>家长端</b>：点右上角「孩子端」按钮切换，默认口令 <b>1234</b>。</p>'+
+    '🧑‍🏫 <b>家长端</b>：点右上角「孩子端」按钮切换，首次进入需设置家长口令。</p>'+
     '<p>所有数值和规则都能在「家长中心 → 系统参数」里改，不用改代码。<br>'+
     '数据保存在本机浏览器，请定期到「存档管理」导出 JSON 备份。</p></div>',
     '<button class="btn" data-act="closeModal">开始吧！</button>');
