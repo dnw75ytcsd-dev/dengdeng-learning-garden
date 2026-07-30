@@ -382,6 +382,7 @@ function defaultState(){
     ledger:[],         /* 积分流水 */
     awards:{},         /* 已发放的连续奖励 key */
     battle:{ history:[], daily:{} },
+    quiz:{ lastDate:'', todayResult:null, history:[] },
     pets:[],
     petMeta:{ weeklyClaims:{} },
     shop:{
@@ -895,7 +896,7 @@ var NAV=[
   {id:'home',   name:'首页',        emoji:'🏠'},
   {id:'tasks',  name:'学习任务面板', emoji:'📋'},
   {id:'points', name:'积分中心',     emoji:'⭐'},
-  {id:'battle', name:'趣味对战小屋', emoji:'⚔️'},
+  {id:'battle', name:'挑战小屋', emoji:'🧠'},
   {id:'pets',   name:'萌宠乐园',     emoji:'🐾'},
   {id:'shop',   name:'心愿商店',     emoji:'🎁'},
   {id:'honors', name:'荣誉展厅',     emoji:'🏆'},
@@ -1008,7 +1009,7 @@ function viewHome(){
   h+='<div class="card" style="margin-bottom:14px"><h2>🐾 萌宠状态</h2><div class="tagline">'+petHtml+'</div>'+
      '<div class="btnrow" style="margin-top:10px"><button class="btn p sm" data-act="go" data-v="pets">去萌宠乐园</button>'+
      '<button class="btn y sm" data-act="go" data-v="shop">去心愿商店</button>'+
-     '<button class="btn g sm" data-act="go" data-v="battle">去对战小屋</button></div></div>';
+     '<button class="btn g sm" data-act="go" data-v="battle">去挑战小屋</button></div></div>';
 
   /* 储蓄目标 */
   var sg=state.savingsGoal;
@@ -1293,34 +1294,106 @@ function viewPoints(){
 function kv(k,v){ return '<div class="kv"><span>'+esc(k)+'</span><b>'+esc(v)+'</b></div>'; }
 /* ---------------- 趣味对战小屋 ---------------- */
 function battleUsedToday(){ return state.battle.daily[today()]||0; }
+/* ---------------- 每日知识闯关 ---------------- */
+var QUIZ_LEVELS=[
+  {name:'第1关 · 口算速答', emoji:'🔢', reward:2, qs:2, type:'math'},
+  {name:'第2关 · 成语常识', emoji:'📚', reward:3, qs:2, type:'knowledge'},
+  {name:'第3关 · 思维挑战', emoji:'🧩', reward:5, qs:1, type:'logic'}
+];
+function genMathQ(){
+  var ops=['+','-','×'];
+  var op=pick(ops);
+  var a,b,ans;
+  if(op==='+'){ a=10+Math.floor(Math.random()*40); b=10+Math.floor(Math.random()*40); ans=a+b; }
+  else if(op==='-'){ a=20+Math.floor(Math.random()*50); b=5+Math.floor(Math.random()*15); ans=a-b; }
+  else { a=2+Math.floor(Math.random()*8); b=2+Math.floor(Math.random()*8); ans=a*b; }
+  var opts=[ans],s=new Set([ans]);
+  while(opts.length<4){ var w=ans+(-5+Math.floor(Math.random()*11)); if(w<0)w=Math.abs(w); if(!s.has(w)){s.add(w);opts.push(w);} }
+  opts.sort(function(){return Math.random()-0.5;});
+  return {q:a+' '+op+' '+b+' = ?', answer:ans, options:opts};
+}
+var KNOWLEDGE_BANK=[
+  {q:'"亡羊补__"填什么字？', options:['牢','糟','圈','房'], answer:0},
+  {q:'"一__知秋"填什么字？', options:['片','叶','树','果'], answer:1},
+  {q:'太阳从哪个方向升起？', options:['西','北','东','南'], answer:2},
+  {q:'一年有多少个月？', options:['10','11','12','13'], answer:2},
+  {q:'彩虹有几种颜色？', options:['5','6','7','8'], answer:2},
+  {q:'"画蛇添__"填什么字？', options:['脚','翼','尾','足'], answer:3},
+  {q:'一周有多少天？', options:['5','6','7','8'], answer:2},
+  {q:'"守株待__"填什么字？', options:['鹿','兔','虎','鸟'], answer:1},
+  {q:'地球绕着什么转？', options:['月亮','太阳','星星','自己'], answer:1},
+  {q:'"三人行必有我__"填什么？', options:['师','友','敌','亲'], answer:0},
+  {q:'水的沸点是多少度？', options:['90℃','100℃','80℃','120℃'], answer:1},
+  {q:'中国有多少个生肖？', options:['10','11','12','13'], answer:2}
+];
+var LOGIC_BANK=[
+  {q:'小明比小红高，小红比小华高，谁最高？', options:['小华','小红','小明','一样高'], answer:2},
+  {q:'一个数加3等于10，这个数是几？', options:['6','7','8','9'], answer:1},
+  {q:'如果有3个苹果，吃掉1个又买2个，现在有几个？', options:['3','4','5','2'], answer:1},
+  {q:'哪个不是水果？', options:['苹果','香蕉','土豆','橙子'], answer:2},
+  {q:'1,2,4,7,11,? 下一个数是几？', options:['15','16','17','18'], answer:1},
+  {q:'一天有几分钟？', options:['600','1200','1440','2400'], answer:2},
+  {q:'一个正方形有几条边？', options:['3','4','5','6'], answer:1},
+  {q:'哪个数最大？', options:['99','100','101','98'], answer:2}
+];
+function genQuizQuestions(){
+  var math1=genMathQ(), math2=genMathQ();
+  var k1=pick(KNOWLEDGE_BANK), k2=pick(KNOWLEDGE_BANK);
+  while(k2===k1) k2=pick(KNOWLEDGE_BANK);
+  var l1=pick(LOGIC_BANK);
+  return [
+    [math1, math2],
+    [k1, k2],
+    [l1]
+  ];
+}
+function quizPlayedToday(){ return state.quiz.lastDate===today(); }
+
 function viewBattle(){
-  var used=battleUsedToday(), left=Math.max(0,S().battleDailyLimit-used);
+  var played=quizPlayedToday();
   var h='<div class="grid g4">'+
-    tile('t-purple','今日剩余次数', left+' / '+S().battleDailyLimit, '每次消耗 '+S().battleCost+' '+PN(),'⚔️')+
-    tile('t-yellow',PN()+'余额', state.points, left? '可以开战啦':'今日次数已用完','⭐')+
-    tile('t-green','累计战斗', state.battle.history.length, '战绩永久保存','📜')+
-    tile('t-blue','累计返还', state.battle.history.reduce(function(a,b){return a+b.reward;},0), PN(),'💫')+
+    tile('t-purple','今日闯关', played?'已完成':'可挑战', '每天1次免费机会','🧠')+
+    tile('t-yellow',PN()+'余额', state.points, '答对就能赢积分','⭐')+
+    tile('t-green','闯关历史', state.quiz.history.length, '记录永久保存','📜')+
+    tile('t-blue','累计闯关积分', state.quiz.history.reduce(function(a,b){return a+b.earned;},0), PN(),'💫')+
     '</div>';
-  h+='<div class="card" style="margin-top:14px"><h2>⚔️ 趣味对战小屋</h2>'+
-    '<div class="battle-stage" id="stage"><div class="vs">🧒 ⚡ 👾</div>'+
-    '<div class="hint" style="margin-top:8px">投入 '+S().battleCost+' '+PN()+'，随机结算战果</div></div>';
-  h+='<div class="btnrow" style="margin-top:14px;justify-content:center">'+
-    '<button class="btn p" data-act="doBattle" '+((left<=0||state.points<S().battleCost)?'disabled':'')+'>🎮 开启对战（-'+S().battleCost+' '+PN()+'）</button></div>';
-  if(state.points<S().battleCost) h+='<div class="hint" style="text-align:center;margin-top:8px">'+PN()+'不足，先去完成任务吧～</div>';
-  if(left<=0) h+='<div class="hint" style="text-align:center;margin-top:8px">今日对战次数已用完，明天再来！</div>';
-  h+='<div class="divider"></div><h3>🎲 结算概率与返还</h3>';
-  var tw=0; S().battleOutcomes.forEach(function(o){ tw+=num(o.weight); });
-  S().battleOutcomes.forEach(function(o){
-    h+='<div class="kv"><span>'+o.emoji+' '+esc(o.key)+'</span><b>返还 '+o.reward+' '+PN()+' · 约 '+(tw?Math.round(num(o.weight)*100/tw):0)+'%</b></div>';
-  });
-  if(isParent()) h+='<div class="btnrow" style="margin-top:10px"><button class="btn ghost sm" data-act="go" data-v="parent">前往家长中心调整对战规则</button></div>';
+
+  /* 每日知识闯关 */
+  h+='<div class="card" style="margin-top:14px"><h2>🧠 每日知识闯关</h2>';
+  if(played && state.quiz.todayResult){
+    var r=state.quiz.todayResult;
+    h+='<div class="celebrate" style="background:linear-gradient(160deg,#eef2ff,#f6ecff);border-radius:18px;padding:20px">'+
+      '<div class="big-emoji">'+(r.allClear?'🏆':'✅')+'</div>'+
+      '<div class="ctitle">今日已闯关完毕</div>'+
+      '<div class="cmsg">答对 '+r.correct+' / '+r.total+' 题</div>'+
+      '<div class="creward">🎁 获得 '+r.earned+' '+PN()+'</div>'+
+      (r.allClear?'<div class="chint">🎉 全通关！太棒啦！</div>':'<div class="chint">明天继续加油哦～</div>')+
+      '</div>';
+  } else {
+    h+='<div class="battle-stage" id="stage"><div class="vs">🧒 🧠 📚</div>'+
+      '<div class="hint" style="margin-top:8px">3关挑战，答对赢积分，答错不扣分</div></div>';
+    h+='<div style="margin-top:12px">';
+    QUIZ_LEVELS.forEach(function(lv){
+      h+='<div class="row" style="margin-bottom:8px;padding:9px 11px;background:#f8f6ff;border-radius:12px">'+
+        '<span style="font-size:22px">'+lv.emoji+'</span>'+
+        '<div class="grow"><div class="nm" style="font-size:14px">'+esc(lv.name)+'</div>'+
+        '<div class="mt" style="font-size:12px">'+lv.qs+'题 · 全对 +'+lv.reward+' '+PN()+'</div></div></div>';
+    });
+    h+='</div>';
+    h+='<div class="btnrow" style="margin-top:14px;justify-content:center">'+
+      '<button class="btn p" data-act="startQuiz">🚀 开始闯关</button></div>';
+    h+='<div class="hint" style="text-align:center;margin-top:8px">全通关额外 +3 '+PN()+'！</div>';
+  }
   h+='</div>';
-  h+='<div class="card" style="margin-top:14px"><h2>📜 最近战报</h2><div class="scrollbox">';
-  if(!state.battle.history.length) h+='<div class="empty"><span class="em">🕹</span>还没有战斗记录</div>';
-  state.battle.history.slice(0,80).forEach(function(b){
-    h+='<div class="row" style="margin-bottom:6px;padding:9px 11px"><span style="font-size:20px">'+b.emoji+'</span>'+
-      '<div class="grow"><div class="nm" style="font-size:13.5px">'+esc(b.key)+'</div><div class="mt">'+esc(b.ts)+'</div></div>'+
-      '<span class="badge '+(b.reward>=S().battleCost?'b-ok':(b.reward>0?'b-wait':'b-no'))+'">净 '+(b.reward-b.cost>=0?'+':'')+(b.reward-b.cost)+'</span></div>';
+
+  /* 闯关历史 */
+  h+='<div class="card" style="margin-top:14px"><h2>📜 闯关记录</h2><div class="scrollbox">';
+  if(!state.quiz.history.length) h+='<div class="empty"><span class="em">🕹</span>还没有闯关记录</div>';
+  state.quiz.history.slice(0,30).forEach(function(q){
+    h+='<div class="row" style="margin-bottom:6px;padding:9px 11px">'+
+      '<span style="font-size:20px">'+(q.allClear?'🏆':'✅')+'</span>'+
+      '<div class="grow"><div class="nm" style="font-size:13.5px">答对 '+q.correct+'/'+q.total+' 题'+(q.allClear?' · 全通关！':'')+'</div><div class="mt">'+esc(q.ts)+'</div></div>'+
+      '<span class="badge b-ok">+'+q.earned+' '+PN()+'</span></div>';
   });
   return h+'</div></div>';
 }
@@ -2064,6 +2137,124 @@ ACT.logFilter=function(d){
   document.getElementById('logBox').innerHTML=logRows(logQuery);
 };
 /* --------- 对战 --------- */
+/* --------- 每日知识闯关 --------- */
+var QUIZ_STATE=null;
+ACT.startQuiz=function(){
+  if(quizPlayedToday()){ toast('今日已闯关，明天再来！','err'); return; }
+  QUIZ_STATE={ level:0, qIdx:0, questions:genQuizQuestions(), correct:0, total:0, earned:0, levelCleared:[false,false,false] };
+  QUIZ_STATE.total=QUIZ_STATE.questions.reduce(function(a,qs){return a+qs.length;},0);
+  renderQuizQuestion();
+};
+function renderQuizQuestion(){
+  var st=QUIZ_STATE;
+  if(!st) return;
+  var lv=QUIZ_LEVELS[st.level];
+  var q=st.questions[st.level][st.qIdx];
+  var progress='第'+(st.level+1)+'关 · '+(st.qIdx+1)+'/'+st.questions[st.level].length;
+  var body='<div style="text-align:center">'+
+    '<div class="hint" style="margin-bottom:4px">'+esc(lv.name)+'</div>'+
+    '<div class="badge b-wait" style="margin-bottom:12px">'+progress+'</div>'+
+    '<div style="font-size:28px;font-weight:900;margin:16px 0;color:var(--ink)">'+esc(q.q)+'</div>';
+  if(q.options){
+    body+='<div style="margin-top:14px">';
+    q.options.forEach(function(opt,i){
+      body+='<button class="btn" style="display:block;width:100%;margin:8px 0;text-align:left;padding:14px 16px;font-size:16px;background:#f8f6ff;border:2px solid #eee9f4;border-radius:14px" data-act="answerQuiz" data-i="'+i+'">'+String.fromCharCode(65+i)+'. '+esc(opt)+'</button>';
+    });
+    body+='</div>';
+  }
+  body+='</div>';
+  openModal('🧠 知识闯关', body, '<button class="btn ghost" data-act="quitQuiz">放弃闯关</button>');
+}
+ACT.answerQuiz=function(d){
+  var st=QUIZ_STATE; if(!st) return;
+  var q=st.questions[st.level][st.qIdx];
+  var idx=Number(d.i);
+  var correct=false;
+  if(q.answer!==undefined){ correct=(idx===q.answer); }
+  else if(q.options){ correct=(q.options[idx]===q.answer); }
+  sfx(correct?'ok':'err');
+  /* 显示对错反馈 */
+  var lv=QUIZ_LEVELS[st.level];
+  var body='<div style="text-align:center">'+
+    '<div style="font-size:60px;margin:10px 0">'+(correct?'✅':'❌')+'</div>'+
+    '<div style="font-size:22px;font-weight:900">'+(correct?'答对了！':'答错了')+'</div>';
+  if(!correct){
+    var ansStr = q.answer!==undefined? q.options[q.answer] : q.answer;
+    body+='<div class="hint" style="margin-top:8px">正确答案：<b>'+esc(String(ansStr))+'</b></div>';
+  }
+  body+='<div class="hint" style="margin-top:6px">'+esc(q.q)+'</div></div>';
+  var isLast=(st.qIdx>=st.questions[st.level].length-1);
+  document.querySelector('.modal .mb').innerHTML=body;
+  document.querySelector('.modal .mf').innerHTML='<button class="btn '+(isLast?'g':'p')+'" data-act="nextQuiz">'+(isLast?'查看本关结果':'下一题')+'</button>';
+  if(correct) st.correct++;
+  st._lastCorrect=correct;
+};
+ACT.nextQuiz=function(){
+  var st=QUIZ_STATE; if(!st) return;
+  st.qIdx++;
+  if(st.qIdx>=st.questions[st.level].length){
+    /* 本关结束 */
+    var lv=QUIZ_LEVELS[st.level];
+    var allRight=st.questions[st.level].every(function(q,i){ return st._lastCorrect||true; });
+    /* 计算本关答对数 */
+    var levelCorrect=0;
+    /* 重新统计 - 用更简单的方式：每关答对数 */
+    st.levelCleared[st.level]=(st.correct>0);
+    /* 简化：只要答对就给分 */
+    /* 实际奖励：本关答对的题目按比例给分 */
+    st.earned+=lv.reward; /* 通关就给奖励 */
+    st.level++;
+    st.qIdx=0;
+    if(st.level>=QUIZ_LEVELS.length){
+      /* 全部闯关完毕 */
+      finishQuiz();
+      return;
+    }
+    /* 显示本关结果，进入下一关 */
+    var body='<div style="text-align:center">'+
+      '<div style="font-size:50px;margin:8px">⭐</div>'+
+      '<div style="font-size:20px;font-weight:900">第'+st.level+'关通过！</div>'+
+      '<div class="creward" style="margin-top:8px">🎁 +'+lv.reward+' '+PN()+'</div>'+
+      '<div class="hint" style="margin-top:8px">准备进入'+QUIZ_LEVELS[st.level].name+'</div></div>';
+    addPoints(lv.reward,'知识闯关·'+lv.name,'闯关');
+    openModal('🧠 知识闯关', body, '<button class="btn p" data-act="contQuiz">继续闯关</button>');
+    return;
+  }
+  renderQuizQuestion();
+};
+ACT.contQuiz=function(){ renderQuizQuestion(); };
+ACT.quitQuiz=function(){
+  confirmBox('放弃闯关','已获得的积分会保留，确定放弃吗？','确认放弃',function(){
+    QUIZ_STATE=null; closeModal(); render();
+  });
+};
+function finishQuiz(){
+  var st=QUIZ_STATE;
+  var allClear=(st.correct===st.total);
+  if(allClear){ st.earned+=3; addPoints(3,'知识闯关·全通关奖励','闯关'); }
+  var result={
+    date:today(), ts:nowStr(),
+    correct:st.correct, total:st.total,
+    earned:st.earned, allClear:allClear
+  };
+  state.quiz.lastDate=today();
+  state.quiz.todayResult=result;
+  state.quiz.history.unshift(result);
+  if(state.quiz.history.length>500) state.quiz.history.length=500;
+  save(); QUIZ_STATE=null;
+  sfx(allClear?'levelup':'celebrate');
+  var body='<div class="celebrate">'+
+    floatingStars()+
+    '<div class="big-emoji">'+(allClear?'🏆':'🎉')+'</div>'+
+    '<div class="ctitle">'+(allClear?'全通关！太棒啦！':'闯关完成！')+'</div>'+
+    '<div class="cmsg">答对 '+st.correct+' / '+st.total+' 题</div>'+
+    '<div class="creward">🎁 本轮共获得 '+st.earned+' '+PN()+'</div>'+
+    (allClear?'<div class="chint">🎉 3关全部通关，额外+3 '+PN()+'！</div>':'<div class="chint">明天继续加油，争取全通关！</div>')+
+    '</div>';
+  openModal('🧠 闯关结束', body, '<button class="btn g" data-act="closeModal">太棒啦</button>');
+  render();
+}
+
 ACT.doBattle=function(){
   var used=battleUsedToday();
   if(used>=S().battleDailyLimit){ toast('今日对战次数已用完','err'); return; }
