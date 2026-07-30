@@ -393,10 +393,17 @@ function defaultState(){
         {id:'s5', cat:'即时军需补给', name:'20分钟动画观看时长', emoji:'📺', cost:30, dailyLimit:2, enabled:true, note:'单日最多兑换2次'},
         {id:'s6', cat:'重型装备采购', name:'绘本',               emoji:'📖', cost:40, dailyLimit:0, enabled:true, note:''},
         {id:'s7', cat:'重型装备采购', name:'小型拼装模型',       emoji:'🧩', cost:70, dailyLimit:0, enabled:true, note:''},
-        {id:'s8', cat:'重型装备采购', name:'乐高 / 短途出游',    emoji:'🏰', cost:150,dailyLimit:0, enabled:true, note:''}
+        {id:'s8', cat:'重型装备采购', name:'乐高 / 短途出游',    emoji:'🏰', cost:150,dailyLimit:0, enabled:true, note:''},
+        {id:'s9', cat:'体验特权券', name:'选周末电影',           emoji:'🎬', cost:10, dailyLimit:0, enabled:true, note:'周末全家看什么你说算'},
+        {id:'s10',cat:'体验特权券', name:'游戏时间+15分钟',      emoji:'🎮', cost:8,  dailyLimit:1, enabled:true, note:'当天多玩一会儿'},
+        {id:'s11',cat:'体验特权券', name:'和爸妈一起做一道菜',   emoji:'👨‍🍳', cost:15, dailyLimit:0, enabled:true, note:'亲子厨房时光'},
+        {id:'s12',cat:'体验特权券', name:'睡前多讲一个故事',     emoji:'📚', cost:6,  dailyLimit:1, enabled:true, note:'今晚多一个故事'},
+        {id:'s13',cat:'体验特权券', name:'周末选一个想去的地方', emoji:'🏞️', cost:25, dailyLimit:0, enabled:true, note:'公园/博物馆/游乐场'}
       ],
       redemptions:[]
     },
+    savingsGoal:{ name:'', emoji:'🎯', target:100, enabled:false },
+    surprise:{ lastDate:'', count:0 },
     cash:{ cycleKey:cycleKeyOf(today()), anchor:today(), weeksPaid:0, entries:[], archive:[] },
     honors:{
       defs:[
@@ -694,6 +701,31 @@ function leaveUsed(mk){ mk=mk||monthKey(today()); var n=0; for(var d in state.le
 function leaveLeft(){ return Math.max(0, S().leaveQuotaPerMonth - leaveUsed()); }
 
 /* ---------------- 连续奖励结算 ---------------- */
+/* ---------------- 惊喜奖励 ---------------- */
+function maybeSurprise(){
+  /* 每天首次完成打卡时，30%概率触发惊喜奖励 */
+  if(state.surprise.lastDate===today()) return;
+  if(Math.random()>0.3) return;
+  state.surprise.lastDate=today();
+  var bonus=1+Math.floor(Math.random()*5); /* 1~5分 */
+  addPoints(bonus,'🎁 惊喜奖励','惊喜');
+  sfx('celebrate');
+  var surprises=[
+    '哇！幸运女神降临！',
+    '今天的运气爆棚！',
+    '惊喜掉落！赶紧收下！',
+    '运气好到飞起来！',
+    '幸运星就在你头上！'
+  ];
+  showCheckinCelebration({
+    emoji:'🎁', title:'惊喜奖励！',
+    msg:pick(surprises),
+    points:bonus,
+    sub:'每天打卡都有机会触发惊喜哦～',
+    btn:'太幸运啦！'
+  });
+}
+
 function checkAwards(silent){
   var msgs=[];
   var t=today();
@@ -977,6 +1009,24 @@ function viewHome(){
      '<div class="btnrow" style="margin-top:10px"><button class="btn p sm" data-act="go" data-v="pets">去萌宠乐园</button>'+
      '<button class="btn y sm" data-act="go" data-v="shop">去心愿商店</button>'+
      '<button class="btn g sm" data-act="go" data-v="battle">去对战小屋</button></div></div>';
+
+  /* 储蓄目标 */
+  var sg=state.savingsGoal;
+  if(sg && sg.enabled && sg.target>0){
+    var sgPct=Math.min(100,Math.round(state.points*100/sg.target));
+    var sgLeft=Math.max(0,sg.target-state.points);
+    h+='<div class="card" style="margin-bottom:14px">'+
+      '<h2>'+esc(sg.emoji||'🎯')+' 储蓄目标：'+esc(sg.name||'目标')+'</h2>'+
+      '<div class="kv"><span>已攒 / 目标</span><b>'+state.points+' / '+sg.target+' '+PN()+'</b></div>'+
+      '<div class="bar" style="margin:8px 0"><i style="width:'+sgPct+'%"></i></div>'+
+      '<div class="hint">'+(sgLeft>0?('还差 '+sgLeft+' '+PN()+' 就达成啦！进度 '+sgPct+'%'):'🎉 目标已达成！可以去心愿商店兑换啦！')+'</div>'+
+      (isParent()? '<div class="btnrow" style="margin-top:8px"><button class="btn ghost sm" data-act="editGoal">✏️ 修改目标</button></div>':'')+
+      '</div>';
+  } else if(isParent()){
+    h+='<div class="card" style="margin-bottom:14px"><h2>🎯 储蓄目标</h2>'+
+      '<div class="hint">为孩子设一个积攒目标，让积分别变成"为梦想存钱"的感觉。</div>'+
+      '<div class="btnrow" style="margin-top:8px"><button class="btn y sm" data-act="editGoal">➕ 设置储蓄目标</button></div></div>';
+  }
   if(isParent()){
     h+='<div class="card"><h2>💰 年度现金预算</h2>'+
        '<div class="kv"><span>本年度已发放 / 上限</span><b>'+used+' 元 / '+cap+' 元</b></div>'+
@@ -1763,7 +1813,7 @@ ACT.approve=function(d){
     var tp=renderTpl('partial', t.name);
     showCheckinCelebration({ emoji:tp.emoji, title:tp.title, msg:tp.msg, sub:tp.sub, btn:tp.btn });
   }
-  checkAwards(); checkHonors(); save(); render();
+  checkAwards(); checkHonors(); maybeSurprise(); save(); render();
 };
 ACT.approveAll=function(){
   var n=0; _silent=true;
@@ -2169,6 +2219,25 @@ ACT.savePetCos=function(){
 };
 
 /* --------- 商店 --------- */
+ACT.editGoal=function(){
+  var sg=state.savingsGoal;
+  openModal('🎯 设置储蓄目标',
+    '<div class="hint">为孩子设一个积攒目标，让积分变成"为梦想存钱"的感觉。</div>'+
+    '<label class="f"><span>目标名称</span><input id="sgName" placeholder="例如：乐高城堡" value="'+esc(sg.name||'')+'"></label>'+
+    '<label class="f"><span>目标积分</span><input id="sgTarget" type="number" placeholder="例如：150" value="'+(sg.target||'')+'"></label>'+
+    '<label class="f"><span>目标图标</span><input id="sgEmoji" placeholder="🎯" value="'+esc(sg.emoji||'🎯')+'"></label>'+
+    '<label class="f"><span>启用</span><select id="sgEnabled"><option value="true" '+(sg.enabled?'selected':'')+'>启用</option><option value="false" '+(!sg.enabled?'selected':'')+'>关闭</option></select></label>',
+    '<button class="btn ghost" data-act="closeModal">取消</button><button class="btn y" data-act="saveGoal">保存目标</button>');
+};
+ACT.saveGoal=function(){
+  state.savingsGoal={
+    name:gv('sgName')||'我的目标',
+    target:num(gv('sgTarget'),100),
+    emoji:gv('sgEmoji')||'🎯',
+    enabled:gc('sgEnabled')
+  };
+  save(); closeModal(); render(); toast('储蓄目标已保存','ok');
+};
 ACT.redeem=function(d){
   var it=findBy(state.shop.items,d.id); if(!it) return;
   var todayCount=state.shop.redemptions.filter(function(r){ return r.itemId===it.id && r.date===today(); }).length;
