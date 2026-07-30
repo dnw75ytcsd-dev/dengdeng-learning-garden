@@ -344,7 +344,8 @@ function defaultState(){
       bedtimeReminder:true,
       bedtimeHour:21,
       bedtimeMinute:20,
-      soundEnabled:true
+      soundEnabled:true,
+      eyeCareReminder:true
     },
     celebratePhrases:['太棒啦！','你真厉害！','继续加油哦！','完成得真好！','爸爸妈妈为你骄傲！','坚持就是胜利！','小小少年了不起！'],
     celebrateTemplates:{
@@ -1507,6 +1508,7 @@ var SETTINGS_SCHEMA=[
     {k:'bedtimeReminder', label:'启用每日早睡提醒弹窗', type:'check'},
     {k:'bedtimeHour', label:'早睡提醒时间（小时 0-23）', type:'number'},
     {k:'bedtimeMinute', label:'早睡提醒时间（分钟 0-59）', type:'number'},
+    {k:'eyeCareReminder', label:'启用护眼提醒（每20分钟休息提示）', type:'check'},
     {k:'soundEnabled', label:'启用音效反馈（打卡/积分/升级等）', type:'check'}
   ]}
 ];
@@ -2299,6 +2301,7 @@ ACT.saveSettings=function(){
     });
   });
   save(); render(); toast('✅ 系统参数已保存','ok');
+  startEyeCare(); /* 重新启动护眼定时器 */
 };
 
 /* --------- 存档 --------- */
@@ -2444,6 +2447,61 @@ function checkBedtime(){
       '</div>',
       '<button class="btn p" data-act="closeModal">晚安，明天见 👋</button><button class="btn ghost" data-act="closeModal">再玩一会</button>');
   }
+}
+
+/* -------- 护眼提醒（20-20-20法则） -------- */
+var EYE_INTERVAL=20*60*1000; /* 20分钟 */
+var eyeTimer=null;
+var eyeShownThisSession=0;
+function startEyeCare(){
+  if(!S().eyeCareReminder) return;
+  if(eyeTimer) clearInterval(eyeTimer);
+  eyeTimer=setInterval(checkEyeCare, EYE_INTERVAL);
+}
+function checkEyeCare(){
+  if(!S().eyeCareReminder) return;
+  /* 有弹窗时不打扰，延后 */
+  if(document.querySelector('.modal')) return;
+  eyeShownThisSession++;
+  sfx('ok');
+  var tips=[
+    '看看窗外远处的绿树 🌳',
+    '闭上眼睛，让眼球转几圈 👀',
+    '双手搓热，轻轻捂住眼睛 🤲',
+    '站起来伸个懒腰，看看天花板 🙆',
+    '去喝口水，让眼睛歇一歇 💧',
+    '做做眼保健操，轻轻按揉太阳穴 ✋'
+  ];
+  openModal('👀 护眼时间到！',
+    '<div class="celebrate" style="background:linear-gradient(160deg,#eafbf0,#eef9ff);border-radius:18px">'+
+    floatingStars()+
+    '<div class="big-emoji">👀</div>'+
+    '<div class="ctitle">该让眼睛休息一下啦！</div>'+
+    '<div class="cmsg"><b>20-20-20 法则</b><br>每看屏幕20分钟，看20英尺（约6米）外的地方，休息20秒。</div>'+
+    '<div class="chint">💡 '+pick(tips)+'</div>'+
+    '<div style="margin-top:12px"><div class="bar" style="height:8px;background:#e8f5e9;border-radius:4px;overflow:hidden"><i id="eyeBar" style="display:block;height:100%;width:0%;background:linear-gradient(90deg,#8ed6a0,#79c6e8);border-radius:4px;transition:width 1s linear"></i></div>'+
+    '<div class="hint" style="margin-top:4px" id="eyeCount">休息倒计时 20 秒…</div></div>'+
+    '</div>',
+    '<button class="btn g" data-act="closeModal" id="eyeOk">休息好了 ✓</button>',
+    function(){
+      var bar=document.getElementById('eyeBar'), cnt=document.getElementById('eyeCount'), btn=document.getElementById('eyeOk');
+      if(bar) bar.style.width='100%';
+      if(btn) btn.disabled=true;
+      if(btn) btn.style.opacity='0.5';
+      var left=20;
+      var iv=setInterval(function(){
+        left--;
+        if(cnt) cnt.textContent='休息倒计时 '+left+' 秒…';
+        if(left<=0){
+          clearInterval(iv);
+          if(cnt) cnt.textContent='✅ 休息完成，继续加油！';
+          if(btn) btn.disabled=false;
+          if(btn) btn.style.opacity='1';
+          if(btn) btn.textContent='继续学习 🚀';
+          sfx('celebrate');
+        }
+      },1000);
+    });
 }
 
 /* -------- 成长周报 -------- */
@@ -2607,6 +2665,7 @@ if(!state.meta.greeted){
 maybeWeeklyReport();
 checkBedtime();
 setInterval(checkBedtime, 30000);
+startEyeCare();
 
 </script>
 </body>
