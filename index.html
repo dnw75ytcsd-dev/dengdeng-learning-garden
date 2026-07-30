@@ -674,6 +674,7 @@ function statCounts(){
 /* 通过任务名查找任务key（在所有日常+课程任务中搜索） */
 function findTaskKeyByName(nm){
   if(!nm) return null;
+  if(!state.tasks) return null;
   for(var i=0;i<state.tasks.daily.length;i++){
     if(state.tasks.daily[i].name===nm) return 'd:'+state.tasks.daily[i].id;
   }
