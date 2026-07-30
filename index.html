@@ -705,6 +705,7 @@ function leaveLeft(){ return Math.max(0, S().leaveQuotaPerMonth - leaveUsed()); 
 /* ---------------- 惊喜奖励 ---------------- */
 function maybeSurprise(){
   /* 每天首次完成打卡时，30%概率触发惊喜奖励 */
+  if(!state.surprise) state.surprise={lastDate:'', count:0};
   if(state.surprise.lastDate===today()) return;
   if(Math.random()>0.3) return;
   state.surprise.lastDate=today();
@@ -826,6 +827,7 @@ function runCashCycle(){
 /* ---------------- 萌宠周补给 + 心情衰减 ---------------- */
 function runPetWeekly(){
   var wk=weekKey(today()), got=0;
+  if(!state.pets || !Array.isArray(state.pets)){ state.pets=[]; }
   state.pets.forEach(function(p){
     /* 满级周补给 */
     if(p.level >= S().petMaxLevel){
@@ -961,7 +963,7 @@ function viewHome(){
   var used=cashUsed(), cap=S().cashAnnualCap, pct=Math.min(100, Math.round(used*100/cap));
   var barCls = used>=cap? 'dang' : (used>=S().cashWarnAt? 'warn':'');
   var petHtml='';
-  if(state.pets.length){
+  if(state.pets && state.pets.length){
     state.pets.forEach(function(p){
       var fed = p.lastFed===t;
       petHtml+='<span class="pill" style="font-size:12.5px">'+p.emoji+' '+esc(p.name)+' Lv.'+p.level+' '+(fed?'😋已喂':'🍽️待喂')+'</span> ';
@@ -1347,9 +1349,10 @@ function genQuizQuestions(){
     [l1]
   ];
 }
-function quizPlayedToday(){ return state.quiz.lastDate===today(); }
+function quizPlayedToday(){ if(!state.quiz) state.quiz={lastDate:'', todayResult:null, history:[]}; return state.quiz.lastDate===today(); }
 
 function viewBattle(){
+  if(!state.quiz) state.quiz={lastDate:'', todayResult:null, history:[]};
   var played=quizPlayedToday();
   var h='<div class="grid g4">'+
     tile('t-purple','今日闯关', played?'已完成':'可挑战', '每天1次免费机会','🧠')+
