@@ -2909,6 +2909,9 @@ document.addEventListener('keydown', function(e){
 });
 window.addEventListener('beforeunload', function(){ try{ save(); }catch(e){} });
 
+window.onerror=function(msg,url,line,col,err){
+  document.body.innerHTML='<div style="padding:20px;font-family:monospace;font-size:14px"><h3>页面出错了</h3><p>'+msg+'</p><p>行:'+line+' 列:'+col+'</p><pre style="white-space:pre-wrap;background:#f5f5f5;padding:10px;border-radius:8px">'+(err&&err.stack?err.stack:msg)+'</pre><button onclick="localStorage.clear();location.reload()" style="margin-top:10px;padding:10px 20px;background:#ff9db4;color:#fff;border:none;border-radius:8px;cursor:pointer">清除数据并重试</button></div>';
+};
 load();
 taskDate=today();
 runCashCycle(); runPetWeekly();
