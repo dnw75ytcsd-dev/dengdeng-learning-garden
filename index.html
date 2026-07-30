@@ -343,7 +343,8 @@ function defaultState(){
       resetMonthDay:'08-01',
       bedtimeReminder:true,
       bedtimeHour:21,
-      bedtimeMinute:20
+      bedtimeMinute:20,
+      soundEnabled:true
     },
     celebratePhrases:['太棒啦！','你真厉害！','继续加油哦！','完成得真好！','爸爸妈妈为你骄傲！','坚持就是胜利！','小小少年了不起！'],
     celebrateTemplates:{
@@ -462,8 +463,37 @@ function toast(msg, kind){
   var d=document.createElement('div');
   d.className='toast '+(kind||'');
   d.textContent=msg; box.appendChild(d);
+  /* 音效反馈 */
+  if(kind==='ok') sfx('ok');
+  else if(kind==='err') sfx('err');
+  else if(kind==='coin') sfx('coin');
   setTimeout(function(){ d.style.transition='.3s'; d.style.opacity='0'; d.style.transform='translateY(-8px)';
     setTimeout(function(){ d.remove(); },320); }, 2200);
+}
+/* ---------------- 音效系统（Web Audio API，无需外部文件） ---------------- */
+var _ac=null;
+function sfx(type){
+  try{
+    if(!state.settings.soundEnabled) return;
+    if(!_ac) _ac=new (window.AudioContext||window.webkitAudioContext)();
+    var ac=_ac; if(ac.state==='suspended') ac.resume();
+    var now=ac.currentTime;
+    function tone(freq, start, dur, vol, type){
+      var o=ac.createOscillator(), g=ac.createGain();
+      o.type=type||'sine'; o.frequency.value=freq;
+      o.connect(g); g.connect(ac.destination);
+      g.gain.setValueAtTime(0, now+start);
+      g.gain.linearRampToValueAtTime(vol||0.15, now+start+0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, now+start+dur);
+      o.start(now+start); o.stop(now+start+dur+0.05);
+    }
+    if(type==='ok'){ tone(523,0,0.15,0.12,'sine'); tone(659,0.08,0.15,0.12,'sine'); tone(784,0.16,0.2,0.12,'sine'); }
+    else if(type==='err'){ tone(300,0,0.12,0.1,'square'); tone(200,0.1,0.15,0.1,'square'); }
+    else if(type==='coin'){ tone(880,0,0.08,0.1,'square'); tone(1320,0.06,0.12,0.1,'square'); }
+    else if(type==='levelup'){ tone(523,0,0.1,0.12); tone(659,0.08,0.1,0.12); tone(784,0.16,0.1,0.12); tone(1047,0.24,0.2,0.14); }
+    else if(type==='battle'){ tone(150,0,0.1,0.12,'sawtooth'); tone(100,0.08,0.2,0.1,'sawtooth'); }
+    else if(type==='celebrate'){ tone(523,0,0.1,0.1); tone(659,0.1,0.1,0.1); tone(784,0.2,0.1,0.1); tone(1047,0.3,0.25,0.13); }
+  }catch(e){}
 }
 var _modalCb=null;
 function openModal(title, bodyHTML, footerHTML, onOpen){
@@ -509,6 +539,7 @@ function animatePoints(delta){
   el.style.transform='scale(1.3)';
   el.style.transition='transform 0.3s';
   setTimeout(function(){ el.style.transform='scale(1)'; },300);
+  if(delta>0) sfx('coin');
   /* 浮动 +N / -N 提示 */
   if(delta!==0){
     var f=document.createElement('div');
@@ -723,6 +754,7 @@ function checkHonors(){
         '<div class="badge '+(d.tier==='trophy'?'b-course':'b-wait')+'" style="margin-top:6px">'+(d.tier==='trophy'?'长期里程碑奖杯':'短期奖状')+'</div></div>';
     });
     html+='<div class="hint" style="margin-top:10px">已永久收录进荣誉展厅图鉴 ✨</div></div>';
+    sfx('levelup');
     openModal('🎊 解锁新荣誉！', html, '<button class="btn" data-act="closeModal">太棒啦</button>');
   }
   return newly;
@@ -1474,7 +1506,8 @@ var SETTINGS_SCHEMA=[
   {g:'⏰ 提醒与周报', f:[
     {k:'bedtimeReminder', label:'启用每日早睡提醒弹窗', type:'check'},
     {k:'bedtimeHour', label:'早睡提醒时间（小时 0-23）', type:'number'},
-    {k:'bedtimeMinute', label:'早睡提醒时间（分钟 0-59）', type:'number'}
+    {k:'bedtimeMinute', label:'早睡提醒时间（分钟 0-59）', type:'number'},
+    {k:'soundEnabled', label:'启用音效反馈（打卡/积分/升级等）', type:'check'}
   ]}
 ];
 function viewParent(){
@@ -2010,6 +2043,7 @@ ACT.doBattle=function(){
   if(state.battle.history.length>500) state.battle.history.length=500;
   save();
   var net=rw-S().battleCost;
+  sfx('battle');
   openModal('⚔️ 对战结算',
     '<div style="text-align:center"><div style="font-size:70px">'+hit.emoji+'</div>'+
     '<div style="font-size:24px;font-weight:900;margin-top:4px">'+esc(hit.key)+'</div>'+
@@ -2060,7 +2094,7 @@ ACT.feedPet=function(d){
   if(state.points<S().petFeedCost){ toast(PN()+'不足','err'); return; }
   addPoints(-S().petFeedCost,'喂养萌宠「'+p.name+'」','萌宠');
   p.lastFed=today(); p.mood=Math.min(100,p.mood+10); p.exp=(p.exp||0)+1;
-  if(p.exp>=p.level*5 && p.level<S().petMaxLevel){ p.exp=0; p.level++; toast('🎊 '+p.name+' 升到了 Lv.'+p.level+'！','ok'); }
+  if(p.exp>=p.level*5 && p.level<S().petMaxLevel){ p.exp=0; p.level++; sfx('levelup'); toast('🎊 '+p.name+' 升到了 Lv.'+p.level+'！','ok'); }
   save(); render(); toast('🍖 '+p.name+' 吃得好开心','ok');
 };
 ACT.lvPet=function(d){
@@ -2364,6 +2398,7 @@ function floatingStars(){
 }
 function showCheckinCelebration(opts){
   opts=opts||{};
+  sfx('celebrate');
   var body='<div class="celebrate">'+
     floatingStars()+
     '<div class="big-emoji">'+(opts.emoji||'🎉')+'</div>'+
